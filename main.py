@@ -8,6 +8,9 @@ from urllib.request import urlopen
 from bs4 import BeautifulSoup
 import html
 import requests
+import pandas as pd 
+from paginator import Paginator
+import asyncio
 
 intents = discord.Intents.all()
 client = discord.Client(intents=intents)
@@ -21,6 +24,8 @@ with open('token.txt') as f:
 currencies=["$","USD","usd","€","💲","PHP"]
 
 tours="https://play.limitlesstcg.com/tournaments/upcoming?game=POCKET&format=all&platform=all&type=online"
+
+df = pd.read_csv("data_pocket.csv") 
 
 def eachInASeparateLine(A):
     yourList = A
@@ -52,6 +57,15 @@ def tour():
             A.append("")
     return(eachInASeparateLine(A))
 
+def pages(nom):
+    o = df[df['Name'].str.contains(nom,na=False)] 
+    PAGES=[]
+    for i in range(0,len(o)):
+        embed=discord.Embed(title=nom)
+        embed.set_image(url=(o['URL'].iloc[i]))
+        PAGES.append(embed)
+    return(PAGES)
+
 @tree.command(
     name="tournois",
     description="Liste des tournois à venir",
@@ -59,8 +73,68 @@ def tour():
 )
 async def Tournois(interaction):
     await interaction.response.defer()
-    embed=discord.Embed(title="Tournois Limitless", url=tours, description=tour())
+    embed=discord.Embed(title="Tournois Limitless", url=tours, description=tour(),)
     await interaction.followup.send(embed=embed)
+
+@tree.command(
+    name="carte",
+    description="Montre les différentes versions d'une carte",
+    guild=discord.Object(id=803694121637380136)
+)
+async def carte(interaction: discord.Interaction, nom:str ):
+    o = df[df['Name'].str.contains(nom,na=False)]
+    buttons = [u"\u23EA",u"\u25C0",u"\u25B6",u"\u23E9"]
+    current = 0
+    page=pages(nom)
+    print(page)
+    await interaction.response.send_message(embed=page[current])
+    message: discord.Message
+    async for message in interaction.channel.history():
+        if not message.embeds:
+            continue
+        if message.embeds[0].title == page[current].title and message.embeds[0].colour == page[current].colour:
+            break
+    else:
+        # something broke
+        return
+
+    for button in buttons:
+        await message.add_reaction(button)
+
+    while True:
+        try:
+            reaction, user = await client.wait_for("reaction_add", check=lambda reaction, user: user == interaction.user and reaction.emoji in buttons, timeout=60.0)
+        except asyncio.TimeoutError:
+            embed=page[current]
+            embed.set_footer(text="Timed Out.")
+            await message.clear_reactions()
+        
+        else:
+            previous_page=current
+
+            if reaction.emoji==u"\u23EA":
+                current = 0
+
+            elif reaction.emoji==u"\u25C0":
+                if current>0:
+                    current-=1
+                else:
+                    current=len(page)-1
+            
+            elif reaction.emoji==u"\u25B6":
+                if current< len(page):
+                    current+=1
+                else:
+                    current=0
+            
+            elif reaction.emoji==u"\u23E9":
+                current=len(page)-1
+
+            for button in buttons:
+                await message.remove_reaction(button,interaction.user)
+
+            if current != previous_page:
+                await message.edit (embed=page[current])
 
 @client.event
 async def on_message(message):
